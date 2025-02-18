@@ -1,0 +1,28 @@
+{
+  "name": "kafka-consumer-rebalancing",
+  "version": "1.0.0",
+  "description": "Kafka-based bank statement processing system with MongoDB offset tracking",
+  "main": "server.js",
+  "scripts": {
+    "start:producer": "node producer/producer.js",
+    "start:consumer": "node consumer/consumer.js",
+    "seed:database": "node database/seed.js",
+    "dev": "nodemon"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "kafkajs": "^2.2.4",
+    "mongoose": "^7.4.2",
+    "pdfkit": "^0.13.0",
+    "dotenv": "^16.0.3",
+    "ioredis": "^5.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": ["kafka", "mongoDB", "bank-statement", "nodejs"],
+  "license": "MIT"
+}

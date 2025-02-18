@@ -1,0 +1,183 @@
+version: '3.8'
+
+services:
+  # ✅ Zookeeper for Kafka Coordination
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper
+    restart: always
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - kafka_network
+
+  # ✅ Kafka Broker 1 with JMX Metrics Enabled
+  kafka-1:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-1
+    restart: always
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+      - "9101:9101"  # ✅ Expose JMX metrics for Prometheus
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_JMX_PORT: 9101
+    networks:
+      - kafka_network
+
+  # ✅ Kafka Broker 2 for Load Balancing
+  kafka-2:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-2
+    restart: always
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"
+      - "29093:29093"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:29093,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    networks:
+      - kafka_network
+
+  # ✅ Kafka UI (Kafdrop)
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    container_name: kafdrop
+    restart: always
+    depends_on:
+      - kafka-1
+      - kafka-2
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka-1:29092,kafka-2:29093"
+    networks:
+      - kafka_network
+
+  # ✅ Kafka REST Proxy
+  kafka-rest:
+    image: confluentinc/cp-kafka-rest:latest
+    container_name: kafka-rest
+    restart: always
+    depends_on:
+      - kafka-1
+      - kafka-2
+    ports:
+      - "8082:8082"
+    environment:
+      KAFKA_REST_HOST_NAME: kafka-rest
+      KAFKA_REST_BOOTSTRAP_SERVERS: "kafka-1:29092,kafka-2:29093"
+    networks:
+      - kafka_network
+
+  # ✅ JMX Exporter for Kafka Metrics
+  jmx-exporter:
+    image: bitnami/jmx-exporter:latest
+    container_name: jmx-exporter
+    restart: always
+    depends_on:
+      - kafka-1
+    ports:
+      - "9404:9404"
+    volumes:
+      - ./monitoring/jmx-exporter-config.yml:/config.yml
+    command: [
+      "--config.file=/config.yml"
+    ]
+    networks:
+      - kafka_network
+
+  # ✅ Prometheus for Monitoring Kafka
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    restart: always
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - kafka_network
+
+  # ✅ Alertmanager for Prometheus (For Slack/Email Alerts)
+  alertmanager:
+    image: prom/alertmanager
+    container_name: alertmanager
+    restart: always
+    ports:
+      - "9094:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    networks:
+      - kafka_network
+
+  # ✅ Grafana for Kafka Visualization
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    networks:
+      - kafka_network
+    depends_on:
+      - prometheus
+    volumes:
+      - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana.ini:/etc/grafana/grafana.ini
+      - ./monitoring/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./monitoring/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+  # ✅ MongoDB for Storing Kafka Offsets
+  mongo:
+    image: mongo
+    container_name: mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    networks:
+      - kafka_network
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+
+  # ✅ MongoDB Admin UI (Mongo Express)
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express
+    restart: always
+    depends_on:
+      - mongo
+    ports:
+      - "8081:8081"
+    networks:
+      - kafka_network
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: password
+      ME_CONFIG_MONGODB_URL: "mongodb://admin:password@mongo:27017/"
+
+networks:
+  kafka_network:
+    driver: bridge
